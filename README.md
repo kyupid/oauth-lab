@@ -33,19 +33,27 @@ OAuth 2.0 → 2.1, 그리고 OIDC를 **직접 구현하고, 취약점을 심고,
 ```bash
 ./lab off state       # 방어 끄기 → 공격이 성공한다
 ./lab on  state       # 다시 켜기
-./lab enable implicit # 2.1이 제거한 기능 켜보기
+./lab enable dcr      # 기본 꺼진 기능 켜보기 (implicit · ropc · dcr)
 ```
 
-`state · redirect · onetime · pkce · jwt · aud · algnone · rotation`
+방어: `state · redirect · onetime · pkce · jwt · aud · algnone · rotation`
 
 ## 커리큘럼
 
-`docs/step-00.md` ~ `step-09.md` 를 순서대로 따라간다.
+`docs/step-00.md` ~ `step-12.md` 를 순서대로 따라간다.
+
+**1부 — 단일 클라이언트/리소스**
 
 - **0~2** 역할과 채널, Authorization Code 플로우, 리소스서버와 scope
 - **3~5** CSRF → state, redirect_uri 탈취 → 완전일치·1회용 code, code 가로채기 → PKCE
 - **6~7** opaque → JWT·JWKS(alg:none/aud 공격), refresh 회전과 재사용 감지
 - **8~9** 2.1 감사(implicit·ROPC 제거), OIDC(id_token·nonce·UserInfo)
+
+**2부 — 리소스·클라이언트가 여럿인 세계 (MCP 문맥)**
+
+- **10** PRM(RFC 9728)·Resource Indicators(RFC 8707) — 여러 리소스서버, 발견 체인
+- **11** DCR(RFC 7591) — 클라이언트가 런타임에 스스로 등록
+- **12** Revocation(RFC 7009) — 클라이언트가 토큰을 버린다, 로그아웃의 완성
 
 각 스텝은 "취약하게 만들기 → 직접 공격 → 보완" 순서로 진행하며,
 문서 끝의 "내가 채울 칸"을 직접 채우는 것이 학습의 핵심이다.

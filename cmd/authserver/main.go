@@ -59,6 +59,8 @@ func main() {
 	http.HandleFunc("/.well-known/jwks.json", handleJWKS)
 	http.HandleFunc("/.well-known/oauth-authorization-server", handleDiscovery)
 	http.HandleFunc("/userinfo", handleUserInfo)
+	http.HandleFunc("/connect/register", handleRegister)
+	http.HandleFunc("/oauth2/revoke", handleRevoke)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "authorization server (%s)\n/authorize  /approve  /token\n", issuer)
 	})

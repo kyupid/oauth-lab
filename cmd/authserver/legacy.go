@@ -58,6 +58,8 @@ func handleDiscovery(w http.ResponseWriter, r *http.Request) {
 		"token_endpoint":                        issuer + "/token",
 		"introspection_endpoint":                issuer + "/introspect",
 		"jwks_uri":                              issuer + "/.well-known/jwks.json",
+		"registration_endpoint":                 issuer + "/connect/register",
+		"revocation_endpoint":                   issuer + "/oauth2/revoke",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},

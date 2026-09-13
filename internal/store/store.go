@@ -126,6 +126,30 @@ func (m *Memory) RevokeTokensFromCode(code string) int {
 	return n
 }
 
+// DeleteToken 은 access token 하나를 폐기한다 (RFC 7009 revocation).
+func (m *Memory) DeleteToken(v string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.tokens[v]; !ok {
+		return false
+	}
+	delete(m.tokens, v)
+	return true
+}
+
+// DeleteRefresh 는 refresh token 하나를 폐기한다. 그 Family 전체를 함께 지운다
+// — refresh 를 revoke 하면 거기서 파생될 수 있는 세션 전체를 끊는 것이 안전하다.
+func (m *Memory) DeleteRefresh(v string) bool {
+	m.mu.Lock()
+	rt, ok := m.refresh[v]
+	m.mu.Unlock()
+	if !ok {
+		return false
+	}
+	m.RevokeFamily(rt.Family)
+	return true
+}
+
 // RandString 은 URL-safe 랜덤 문자열을 만든다. code, token, state 모두 여기서 나온다.
 func RandString(nbytes int) string {
 	b := make([]byte, nbytes)

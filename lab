@@ -87,7 +87,7 @@ cmd_status() {
   echo
   echo "  ${C_B}위험기능 (2.1 제거, 기본 꺼짐)${C_RESET}"
   local on; on=$(cat .lab-on 2>/dev/null | tr '\n' ' ' | xargs)
-  for d in implicit ropc; do
+  for d in implicit ropc dcr; do
     if echo " $on " | grep -q " $d "; then
       printf "    %-10s ${C_BAD}⚠ 켜짐${C_RESET}\n" "$d"
     else
