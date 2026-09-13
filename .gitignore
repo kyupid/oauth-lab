@@ -1,0 +1,11 @@
+.env
+*.pem
+.lab-logs/
+.lab-off
+.lab-on
+
+# 빌드 산출물
+/authserver
+/client
+/resource
+/attacker

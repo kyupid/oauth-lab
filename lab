@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# oauth-lab 컨트롤러 — 터미널 하나에서 서버 4개를 관리한다.
+set -uo pipefail
+cd "$(dirname "$0")"
+
+LOGDIR=.lab-logs
+mkdir -p "$LOGDIR"
+
+# 이름:포트:패키지
+SERVERS=(
+  "as:9000:./cmd/authserver:인가서버"
+  "rs:9001:./cmd/resource:리소스서버(노트)"
+  "rs2:9004:./cmd/resource:리소스서버(빌링)"
+  "app:9002:./cmd/client:앱"
+  "evil:9003:./cmd/attacker:공격자사이트"
+)
+
+C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_OK=$'\033[32m'; C_BAD=$'\033[31m'; C_WARN=$'\033[33m'; C_B=$'\033[1m'
+
+field() { echo "$1" | cut -d: -f"$2"; }
+
+pid_on_port() { lsof -ti :"$1" -sTCP:LISTEN 2>/dev/null | head -1; }
+
+start_one() {
+  local name=$1 port=$2 pkg=$3
+  if [ -n "$(pid_on_port "$port")" ]; then
+    echo "  $name  ${C_DIM}이미 실행 중${C_RESET}"
+    return
+  fi
+  if [ "$name" = "rs2" ]; then
+    RS_PORT=9004 RS_NAME=빌링 RS_SCOPE=billing:read go run "$pkg" > "$LOGDIR/$name.log" 2>&1 &
+  else
+    go run "$pkg" > "$LOGDIR/$name.log" 2>&1 &
+  fi
+  echo $! > "$LOGDIR/$name.pid"
+}
+
+stop_one() {
+  local name=$1 port=$2
+  local pid; pid=$(pid_on_port "$port")
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  if [ -f "$LOGDIR/$name.pid" ]; then
+    kill "$(cat "$LOGDIR/$name.pid")" 2>/dev/null
+    rm -f "$LOGDIR/$name.pid"
+  fi
+}
+
+cmd_up() {
+  echo "${C_B}서버 띄우는 중...${C_RESET}"
+  for s in "${SERVERS[@]}"; do
+    start_one "$(field "$s" 1)" "$(field "$s" 2)" "$(field "$s" 3)"
+  done
+  sleep 3
+  cmd_status
+  echo
+  echo "  ${C_DIM}로그 보기: ./lab logs      전부 끄기: ./lab down${C_RESET}"
+}
+
+cmd_down() {
+  for s in "${SERVERS[@]}"; do stop_one "$(field "$s" 1)" "$(field "$s" 2)"; done
+  sleep 1
+  echo "${C_B}전부 종료했습니다.${C_RESET}"
+}
+
+cmd_status() {
+  echo
+  echo "  ${C_B}서버${C_RESET}"
+  for s in "${SERVERS[@]}"; do
+    local name port label pid mark
+    name=$(field "$s" 1); port=$(field "$s" 2); label=$(field "$s" 4)
+    pid=$(pid_on_port "$port")
+    if [ -n "$pid" ]; then mark="${C_OK}● 실행${C_RESET}"; else mark="${C_BAD}○ 꺼짐${C_RESET}"; fi
+    printf "    %-5s :%s  %-12s %s\n" "$name" "$port" "$label" "$mark"
+  done
+  echo
+  echo "  ${C_B}방어${C_RESET}"
+  local off; off=$(cat .lab-off 2>/dev/null | tr '\n' ' ' | xargs)
+  local known=(state redirect onetime pkce jwt aud algnone rotation)
+  for d in "${known[@]}"; do
+    if echo " $off " | grep -q " $d "; then
+      printf "    %-10s ${C_BAD}○ 꺼짐${C_RESET}\n" "$d"
+    else
+      printf "    %-10s ${C_OK}● 켜짐${C_RESET}\n" "$d"
+    fi
+  done
+  echo "    ${C_DIM}state=CSRF  redirect=redirect_uri완전일치  onetime=code1회용  pkce=code가로채기  jwt=JWT발급  aud=수신자검증  algnone=alg:none거부  rotation=refresh회전+재사용감지${C_RESET}"
+  echo
+  echo "  ${C_B}위험기능 (2.1 제거, 기본 꺼짐)${C_RESET}"
+  local on; on=$(cat .lab-on 2>/dev/null | tr '\n' ' ' | xargs)
+  for d in implicit ropc; do
+    if echo " $on " | grep -q " $d "; then
+      printf "    %-10s ${C_BAD}⚠ 켜짐${C_RESET}\n" "$d"
+    else
+      printf "    %-10s ${C_DIM}꺼짐${C_RESET}\n" "$d"
+    fi
+  done
+  echo
+  echo "  ${C_B}열어볼 곳${C_RESET}"
+  echo "    앱        http://127.0.0.1:9002"
+  echo "    공격자    http://127.0.0.1:9003
+    빌링 PRM  http://127.0.0.1:9004/.well-known/oauth-protected-resource"
+}
+
+cmd_logs() {
+  echo "${C_DIM}Ctrl+C 로 로그 보기만 중단합니다 (서버는 계속 실행).${C_RESET}"
+  echo
+  # 각 로그에 이름표를 붙여 한 화면에 합친다
+  tail -n 5 -F "$LOGDIR"/as.log "$LOGDIR"/rs.log "$LOGDIR"/rs2.log "$LOGDIR"/app.log "$LOGDIR"/evil.log 2>/dev/null \
+    | sed -u -e "s|^==> .*/as\.log <==|${C_B}── 인가서버 :9000 ──${C_RESET}|" \
+             -e "s|^==> .*/rs\.log <==|${C_B}── 리소스서버 :9001 ──${C_RESET}|" \
+             -e "s|^==> .*/rs2\.log <==|${C_B}── 리소스서버(빌링) :9004 ──${C_RESET}|" \
+             -e "s|^==> .*/app\.log <==|${C_B}── 앱 :9002 ──${C_RESET}|" \
+             -e "s|^==> .*/evil\.log <==|${C_B}── 공격자 :9003 ──${C_RESET}|"
+}
+
+cmd_restart() {
+  local target=${1:-}
+  for s in "${SERVERS[@]}"; do
+    local name; name=$(field "$s" 1)
+    if [ -z "$target" ] || [ "$target" = "$name" ]; then
+      stop_one "$name" "$(field "$s" 2)"
+      sleep 0.5
+      start_one "$name" "$(field "$s" 2)" "$(field "$s" 3)"
+      echo "  $name 재시작"
+    fi
+  done
+  sleep 2
+}
+
+cmd_off() {
+  local name=${1:-}
+  [ -z "$name" ] && { echo "사용법: ./lab off <방어이름>   (예: state)"; exit 1; }
+  touch .lab-off
+  grep -qx "$name" .lab-off || echo "$name" >> .lab-off
+  echo "${C_WARN}⚠ '$name' 방어를 껐습니다.${C_RESET} 재시작 불필요 — 바로 브라우저에서 시도하세요."
+}
+
+cmd_on() {
+  local name=${1:-}
+  if [ -z "$name" ] || [ "$name" = "all" ]; then
+    rm -f .lab-off; echo "${C_OK}모든 방어를 켰습니다.${C_RESET}"; return
+  fi
+  if [ -f .lab-off ]; then
+    grep -vx "$name" .lab-off > .lab-off.tmp || true   # 남는 줄이 없어도 실패가 아니다
+    mv .lab-off.tmp .lab-off
+    [ -s .lab-off ] || rm -f .lab-off
+  fi
+  echo "${C_OK}'$name' 방어를 켰습니다.${C_RESET}"
+}
+
+
+cmd_enable() {
+  local name=${1:-}
+  [ -z "$name" ] && { echo "사용법: ./lab enable <위험기능>   (implicit | ropc)"; exit 1; }
+  touch .lab-on
+  grep -qx "$name" .lab-on || echo "$name" >> .lab-on
+  echo "${C_BAD}⚠ 위험기능 '$name' 을 켰습니다 (2.1 제거 대상).${C_RESET} 재시작 불필요."
+}
+
+cmd_disable() {
+  local name=${1:-}
+  if [ -z "$name" ] || [ "$name" = "all" ]; then
+    rm -f .lab-on; echo "${C_OK}모든 위험기능을 껐습니다.${C_RESET}"; return
+  fi
+  if [ -f .lab-on ]; then
+    grep -vx "$name" .lab-on > .lab-on.tmp || true
+    mv .lab-on.tmp .lab-on
+    [ -s .lab-on ] || rm -f .lab-on
+  fi
+  echo "${C_OK}위험기능 '$name' 을 껐습니다.${C_RESET}"
+}
+
+case "${1:-status}" in
+  up)      cmd_up ;;
+  down)    cmd_down ;;
+  status)  cmd_status ;;
+  logs)    cmd_logs ;;
+  restart) cmd_restart "${2:-}" ;;
+  off)     cmd_off "${2:-}" ;;
+  enable)  cmd_enable "${2:-}" ;;
+  disable) cmd_disable "${2:-}" ;;
+  on)      cmd_on "${2:-}" ;;
+  *)
+    cat <<USAGE
+oauth-lab 컨트롤러
+
+  ./lab up                서버 4개 전부 띄우기
+  ./lab down              전부 끄기
+  ./lab status            현황 보기 (기본)
+  ./lab logs              로그 한 화면에 모아보기
+  ./lab restart [as|rs|app|evil]
+
+  ./lab off state         방어 끄기 (재시작 불필요)
+  ./lab on  state         방어 켜기
+  ./lab on  all           전부 켜기
+
+  ./lab enable implicit   위험기능 켜기 (implicit | ropc)
+  ./lab disable implicit
+USAGE
+    ;;
+esac
